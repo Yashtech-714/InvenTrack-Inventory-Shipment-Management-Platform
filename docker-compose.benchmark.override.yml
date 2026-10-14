@@ -1,0 +1,4 @@
+﻿services:
+  backend:
+    environment:
+      - SPRING_CACHE_TYPE=none

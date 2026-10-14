@@ -6,8 +6,11 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -18,6 +21,10 @@ import java.util.Map;
  * ProductController — MANAGER manages products; all roles can read.
  * SOLID SRP: thin controller, delegates to repository.
  * Role guard: mutations blocked for non-MANAGER via X-User-Role header.
+ *
+ * Caching:
+ * - getAllProducts() — cached 1 hour (static product catalog)
+ * - Updates invalidate cache via @CacheEvict
  */
 @RestController
 @RequestMapping("/products")
@@ -31,12 +38,26 @@ public class ProductController {
 
 	/** All roles can view active products. */
 	@GetMapping
-	public ResponseEntity<List<Product>> getAllProducts() {
-		return ResponseEntity.ok(productRepository.findByActiveTrue());
+	@Cacheable(value = "products-list", unless = "#result == null")
+	public List<Product> getAllProducts() {
+		return productRepository.findByActiveTrue();
+	}
+
+	/** All roles can view a single active product. */
+	@GetMapping("/{id}")
+	@Cacheable(value = "products-by-id", key = "#id", unless = "#result == null")
+	public Product getProductById(@PathVariable Long id) {
+		Product product = productRepository.findById(id)
+				.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Product not found: " + id));
+		if (!product.isActive()) {
+			throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Product not found: " + id);
+		}
+		return product;
 	}
 
 	/** MANAGER creates a product. */
 	@PostMapping
+	@CacheEvict(value = "products-list", allEntries = true)
 	public ResponseEntity<?> createProduct(
 			@RequestHeader(value = "X-User-Role", defaultValue = "") String role,
 			@Valid @RequestBody ProductRequest request) {
@@ -50,6 +71,7 @@ public class ProductController {
 
 	/** MANAGER updates a product. */
 	@PutMapping("/{id}")
+	@CacheEvict(value = {"products-list", "products-by-id"}, allEntries = true)
 	public ResponseEntity<?> updateProduct(
 			@RequestHeader(value = "X-User-Role", defaultValue = "") String role,
 			@PathVariable Long id,
@@ -65,6 +87,7 @@ public class ProductController {
 
 	/** MANAGER soft-deletes a product. */
 	@PatchMapping("/{id}/deactivate")
+	@CacheEvict(value = {"products-list", "products-by-id"}, allEntries = true)
 	public ResponseEntity<?> deactivateProduct(
 			@RequestHeader(value = "X-User-Role", defaultValue = "") String role,
 			@PathVariable Long id) {

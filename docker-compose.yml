@@ -1,4 +1,20 @@
 services:
+  # Redis Cache Service
+  redis:
+    image: redis:7-alpine
+    container_name: wms-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - wms-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
   # Backend Service
   backend:
     build:
@@ -7,11 +23,16 @@ services:
     container_name: wms-backend
     ports:
       - "8080:8080"
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
       - JAVA_OPTS=-Xmx512m -Xms256m
       - SERVER_PORT=8080
       - SPRING_DATASOURCE_URL=jdbc:h2:mem:wmsdb;DB_CLOSE_ON_EXIT=FALSE;DB_CLOSE_DELAY=-1
       - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
     networks:
       - wms-network
     healthcheck:

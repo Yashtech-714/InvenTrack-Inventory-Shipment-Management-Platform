@@ -3,11 +3,10 @@ package com.wms.controller;
 import com.wms.model.core.InventoryItem;
 import com.wms.model.core.Order;
 import com.wms.model.core.Shipment;
-import com.wms.model.core.enums.OrderStatus;
 import com.wms.repository.InventoryRepository;
 import com.wms.repository.OrderRepository;
 import com.wms.repository.ShipmentRepository;
-import org.springframework.http.ResponseEntity;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -21,6 +20,11 @@ import java.util.stream.Collectors;
  * ReportController — Manager-only reporting endpoints.
  * SOLID SRP: only reporting queries here.
  * GRASP Information Expert: delegates to repositories for data.
+ *
+ * Caching:
+ * - inventorySummary() — cached 1 hour (use inventory.update to invalidate)
+ * - orderDistribution() — cached 30 mins (use order.update to invalidate)
+ * - shipmentSummary() — cached 30 mins (use shipment.update to invalidate)
  */
 @RestController
 @RequestMapping("/reports")
@@ -40,7 +44,8 @@ public class ReportController {
 
 	/** GET /reports/inventory — inventory summary with low-stock flags. */
 	@GetMapping("/inventory")
-	public ResponseEntity<List<Map<String, Object>>> inventorySummary() {
+	@Cacheable(value = "inventory-report", unless = "#result == null")
+	public List<Map<String, Object>> inventorySummary() {
 		List<InventoryItem> items = inventoryRepository.findAll();
 		List<Map<String, Object>> report = items.stream().map(item -> {
 			Map<String, Object> row = new LinkedHashMap<>();
@@ -55,12 +60,13 @@ public class ReportController {
 			row.put("location", item.getStorageLocation() != null ? item.getStorageLocation().getCode() : "Unassigned");
 			return row;
 		}).collect(Collectors.toList());
-		return ResponseEntity.ok(report);
+		return report;
 	}
 
 	/** GET /reports/orders — order count grouped by status. */
 	@GetMapping("/orders")
-	public ResponseEntity<Map<String, Object>> orderDistribution() {
+	@Cacheable(value = "order-report", unless = "#result == null")
+	public Map<String, Object> orderDistribution() {
 		List<Order> orders = orderRepository.findAll();
 		Map<String, Long> byStatus = orders.stream()
 				.collect(Collectors.groupingBy(
@@ -70,12 +76,13 @@ public class ReportController {
 		Map<String, Object> report = new LinkedHashMap<>();
 		report.put("total", orders.size());
 		report.put("distribution", byStatus);
-		return ResponseEntity.ok(report);
+		return report;
 	}
 
 	/** GET /reports/shipments — shipment tracking summary. */
 	@GetMapping("/shipments")
-	public ResponseEntity<List<Map<String, Object>>> shipmentSummary() {
+	@Cacheable(value = "shipment-report", unless = "#result == null")
+	public List<Map<String, Object>> shipmentSummary() {
 		List<Shipment> shipments = shipmentRepository.findAll();
 		List<Map<String, Object>> report = shipments.stream().map(s -> {
 			Map<String, Object> row = new LinkedHashMap<>();
@@ -87,6 +94,6 @@ public class ReportController {
 			row.put("estimatedDelivery", s.getEstimatedDeliveryAt());
 			return row;
 		}).collect(Collectors.toList());
-		return ResponseEntity.ok(report);
+		return report;
 	}
 }
